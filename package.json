@@ -1,5 +1,5 @@
 {
-  "name": "@confluence-sync/core",
+  "name": "@markwinap/confluence-sync-core",
   "version": "1.0.0",
   "description": "Framework-neutral Confluence content synchronization core",
   "main": "dist/index.js",
