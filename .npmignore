@@ -1,0 +1,10 @@
+src/
+node_modules/
+*.tgz
+package-lock.json
+tsconfig.base.json
+tsconfig.json
+dist/*.test.js
+dist/*.test.d.ts
+dist/*.test.js.map
+dist/*.test.d.ts.map
