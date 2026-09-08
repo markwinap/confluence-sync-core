@@ -1,0 +1,27 @@
+{
+  "name": "@markwinap/confluence-sync-core",
+  "version": "1.0.1",
+  "description": "Framework-neutral Confluence content synchronization core",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+
+  "scripts": {
+    "build": "tsc",
+    "test": "node --test dist/*.test.js",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.0",
+    "form-data": "^4.0.0",
+    "turndown": "^7.1.2",
+    "turndown-plugin-gfm": "^1.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/turndown": "^5.0.4",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0"
+  },
+  "license": "UNLICENSED"
+}
