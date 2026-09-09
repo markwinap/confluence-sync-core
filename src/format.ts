@@ -4,9 +4,16 @@ import { sanitizeName } from "./paths";
 
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
 turndown.use(gfm);
+turndown.addRule("confluenceSpan", {
+  filter: (node) => node.nodeName === "SPAN" && !!node.getAttribute("style"),
+  replacement: (content, node: any) => {
+    const style = node.getAttribute("style") as string;
+    return `<span style="${style}">${content}</span>`;
+  },
+});
 
 export function storageToMarkdown(storage: string): string {
-  return turndown.turndown(normalizeAttachmentImages(normalizeTableCells(storage || "")));
+  return turndown.turndown(normalizeConfluenceLinks(normalizeAttachmentImages(normalizeTableCells(storage || ""))));
 }
 
 function normalizeAttachmentImages(storage: string): string {
@@ -17,6 +24,32 @@ function normalizeAttachmentImages(storage: string): string {
     return `<img src="attachments/${sanitizeName(filename)}" alt="${alt}">`;
   });
 }
+
+function normalizeConfluenceLinks(storage: string): string {
+  return storage.replace(/<ac:link\b[^>]*>\s*<ri:page\b[^>]*\bri:content-title="([^"]*)"[^>]*\/?>\s*(?:<ac:link-body>([\s\S]*?)<\/ac:link-body>)?\s*<\/ac:link>/gi, (_, title: string, body: string | undefined) => {
+    const decodedTitle = decodeXmlEntities(title);
+    const text = body ? decodeXmlEntities(body.replace(/<[^>]+>/g, "").trim()) : decodedTitle;
+    return `<a href="confluence-page://${encodeURIComponent(decodedTitle)}">${text}</a>`;
+  });
+}
+
+function decodeXmlEntities(value: string): string {
+  return value
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&([a-zA-Z][a-zA-Z0-9]*);/g, (_, name: string) => xmlEntities[name] || `&${name};`);
+}
+
+const xmlEntities: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+  Aacute: "Á", aacute: "á", Acirc: "Â", acirc: "â", Agrave: "À", agrave: "à", Aring: "Å", aring: "å", Atilde: "Ã", atilde: "ã", Auml: "Ä", auml: "ä",
+  Eacute: "É", eacute: "é", Ecirc: "Ê", ecirc: "ê", Egrave: "È", egrave: "è", Euml: "Ë", euml: "ë",
+  Iacute: "Í", iacute: "í", Icirc: "Î", icirc: "î", Igrave: "Ì", igrave: "ì", Iuml: "Ï", iuml: "ï",
+  Oacute: "Ó", oacute: "ó", Ocirc: "Ô", ocirc: "ô", Ograve: "Ò", ograve: "ò", Otilde: "Õ", otilde: "õ", Ouml: "Ö", ouml: "ö",
+  Uacute: "Ú", uacute: "ú", Ucirc: "Û", ucirc: "û", Ugrave: "Ù", ugrave: "ù", Uuml: "Ü", uuml: "ü",
+  Ntilde: "Ñ", ntilde: "ñ", Ccedil: "Ç", ccedil: "ç", Yacute: "Ý", yacute: "ý",
+  iquest: "¿", iexcl: "¡", nbsp: " ", shy: "",
+};
 
 function normalizeTableCells(storage: string): string {
   return storage.replace(/<table\b[\s\S]*?<\/table>/gi, table => {
@@ -35,7 +68,8 @@ function normalizeTableCells(storage: string): string {
 interface CodeBlock { lang?: string; lines: string[]; }
 
 export function markdownToStorage(markdown: string): string {
-  const escaped = markdown.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const { text, spans } = preserveInlineHtml(markdown);
+  const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const lines = escaped.split(/\r?\n/);
   const output: string[] = [];
   let paragraph: string[] = [];
@@ -152,7 +186,32 @@ export function markdownToStorage(markdown: string): string {
   }
 
   flushAllBlocks();
-  return output.join("\n");
+  return restoreInlineHtml(restoreConfluenceLinks(output.join("\n")), spans);
+}
+
+function restoreConfluenceLinks(storage: string): string {
+  return storage.replace(/<a href="confluence-page:\/\/([^"]+)">([\s\S]*?)<\/a>/g, (_, encodedTitle: string, body: string) => {
+    const href = encodedTitle.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
+    const title = decodeURIComponent(href);
+    return `<ac:link ac:card-appearance="inline"><ri:page ri:content-title="${title}" /><ac:link-body>${body}</ac:link-body></ac:link>`;
+  });
+}
+
+function preserveInlineHtml(markdown: string): { text: string; spans: string[] } {
+  const spans: string[] = [];
+  const text = markdown.replace(/<span\b[^>]*>[\s\S]*?<\/span>/gi, (match) => {
+    spans.push(match);
+    return `@@CSPAN${spans.length - 1}@@`;
+  });
+  return { text, spans };
+}
+
+function restoreInlineHtml(storage: string, spans: string[]): string {
+  let result = storage;
+  for (let i = 0; i < spans.length; i++) {
+    result = result.split(`@@CSPAN${i}@@`).join(spans[i]);
+  }
+  return result;
 }
 
 function parseTableRow(line: string): string[] {
@@ -169,8 +228,13 @@ function isTableSeparator(line: string): boolean {
 }
 
 function inline(value: string): string {
-  return value.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<ac:image ac:alt="$1"><ri:attachment ri:filename="$2" /></ac:image>')
+  return value.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt: string, src: string) => {
+    const filename = decodeURIComponent(src.replace(/^attachments\//, ""));
+    return `<ac:image ac:alt="${alt}"><ri:attachment ri:filename="${filename}" /></ac:image>`;
+  })
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+    .replace(/_([^_]+)_/g, "<em>$1</em>")
     .replace(/`([^`]+)`/g, "<code>$1</code>");
 }

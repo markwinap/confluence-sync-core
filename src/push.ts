@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync } from "fs";
 import * as path from "path";
 import type { Config } from "./config";
 import type { ConfluenceClient } from "./confluenceClient";
@@ -43,8 +43,12 @@ export async function push(config: Config, manifest: Manifest, changes: Change[]
       continue;
     }
     const dir = path.join(config.contentDir, item.relativeDir);
-    const markdownChanged = item.markdownHash !== item.syncedMarkdownHash;
-    const storage = markdownChanged ? markdownToStorage(readFileSync(path.join(dir, "page.md"), "utf8")) : readFileSync(path.join(dir, "page.storage.xhtml"), "utf8");
+    const markdownFile = path.join(dir, "page.md");
+    const storageFile = path.join(dir, "page.storage.xhtml");
+    const currentMarkdown = existsSync(markdownFile) ? readFileSync(markdownFile, "utf8") : undefined;
+    const currentMarkdownHash = currentMarkdown !== undefined ? hash(currentMarkdown) : undefined;
+    const markdownChanged = currentMarkdownHash !== undefined && currentMarkdownHash !== item.syncedMarkdownHash;
+    const storage = markdownChanged ? markdownToStorage(currentMarkdown!) : readFileSync(storageFile, "utf8");
     const parent = item.parentKey ? manifest.items.find(value => value.localKey === item.parentKey) : undefined;
     const remote = item.id
       ? await client.updatePage(item.id, item.title, item.remoteVersion || 0, storage)
@@ -52,8 +56,10 @@ export async function push(config: Config, manifest: Manifest, changes: Change[]
     item.id = String(remote.id);
     item.remoteVersion = remote.version?.number;
     item.storageHash = item.syncedStorageHash = hash(storage);
-    const markdownFile = path.join(dir, "page.md");
-    item.markdownHash = item.syncedMarkdownHash = existsSync(markdownFile) ? hash(readFileSync(markdownFile)) : undefined;
+    if (markdownChanged) {
+      writeFileSync(storageFile, storage, "utf8");
+    }
+    item.markdownHash = item.syncedMarkdownHash = currentMarkdownHash;
     for (const attachment of item.attachments) {
       const file = path.join(dir, attachment.file);
       if (existsSync(file) && hash(readFileSync(file)) !== attachment.hash) {
