@@ -1,10 +1,9 @@
 {
   "name": "@markwinap/confluence-sync-core",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Framework-neutral Confluence content synchronization core",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-
   "scripts": {
     "build": "tsc",
     "test": "node --test dist/*.test.js",
