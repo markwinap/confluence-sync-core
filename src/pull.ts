@@ -255,7 +255,7 @@ async function pullAttachments(client: ConfluenceClient, pageId: string, dir: st
   const attachmentDir = path.join(dir, "attachments");
   mkdirSync(attachmentDir, { recursive: true });
   for (const attachment of attachments) {
-    const file = `${attachment.id}_${sanitizeName(attachment.title)}`;
+    const file = sanitizeName(attachment.title);
     tracker.attachmentStart(file, attachment.fileSize);
     try {
       const data = await client.downloadAttachment(pageId, attachment);

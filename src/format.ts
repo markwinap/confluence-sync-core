@@ -1,11 +1,21 @@
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
+import { sanitizeName } from "./paths";
 
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
 turndown.use(gfm);
 
 export function storageToMarkdown(storage: string): string {
-  return turndown.turndown(normalizeTableCells(storage || ""));
+  return turndown.turndown(normalizeAttachmentImages(normalizeTableCells(storage || "")));
+}
+
+function normalizeAttachmentImages(storage: string): string {
+  return storage.replace(/<ac:image\b([^>]*)>\s*<ri:attachment\b([^>]*)\/?>(?:\s*<\/ri:attachment>)?\s*<\/ac:image>/gi, (macro, imageAttributes: string, attachmentAttributes: string) => {
+    const filename = /ri:filename="([^"]+)"/i.exec(attachmentAttributes)?.[1];
+    if (!filename) return macro;
+    const alt = /ac:alt="([^"]*)"/i.exec(imageAttributes)?.[1] || "";
+    return `<img src="attachments/${sanitizeName(filename)}" alt="${alt}">`;
+  });
 }
 
 function normalizeTableCells(storage: string): string {
